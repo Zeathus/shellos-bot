@@ -23,9 +23,52 @@ const genMessage = (matchJson: { [key: string]: any }) => {
 
     let message1 = "";
     let message2 = "";
+    let team1 = "```";
+    let team2 = "```";
+    let killedBy1 = "```";
+    let killedBy2 = "```";
+    let warnings = "";
 
     //Drafting the message to be sent to the users\
-    if (!combinePD) {
+    if (true) {
+        // New code for showing killer
+        for (let pokemon of Object.keys(killJson1)) {
+            team1 += `${pokemon} \n`
+            if (deathJson1[pokemon].count == 0) {
+                message1 += `${pokemon} survived. \n`;
+                killedBy1 += " \n"
+            } else {
+                if (deathJson1[pokemon].killer === "") {
+                    message1 += `${pokemon} defeated itself. \n`;
+                    deathJson1[pokemon].killer = "Self KO";
+                } else {
+                    message1 += `${pokemon} was defeated by ${deathJson1[pokemon].killer}. \n`;
+                }
+                killedBy1 += `${deathJson1[pokemon].killer} \n`
+            }
+            if (pokemon == "Zoroark" || pokemon == "Zoroark-Hisui" || pokemon == "Ditto") {
+                warnings = `### :oncoming_police_car: WEEWOO ${pokemon.toUpperCase()} WARNING! :oncoming_police_car:\n*(Data might be inaccurate)*\n\n`
+            }
+        }
+        for (let pokemon of Object.keys(killJson2)) {
+            team2 += `${pokemon} \n`
+            if (deathJson2[pokemon].count == 0) {
+                message2 += `${pokemon} survived. \n`;
+                killedBy2 += " \n"
+            } else {
+                if (deathJson2[pokemon].killer === "") {
+                    message2 += `${pokemon} defeated itself. \n`;
+                    deathJson2[pokemon].killer = "Self KO";
+                } else {
+                    message2 += `${pokemon} was defeated by ${deathJson2[pokemon].killer}. \n`;
+                }
+                killedBy2 += `${deathJson2[pokemon].killer} \n`
+            }
+            if (pokemon == "Zoroark" || pokemon == "Zoroark-Hisui" || pokemon == "Ditto") {
+                warnings = `### WEEWOO ${pokemon.toUpperCase()} WARNING!\n*(Data might be inaccurate)*\n\n`
+            }
+        }
+    } else if (!combinePD) {
         for (let pokemon of Object.keys(killJson1)) {
             message1 += `${pokemon} has ${killJson1[pokemon].direct} direct kills, ${killJson1[pokemon].passive} passive kills, and ${deathJson1[pokemon]} deaths. \n`;
         }
@@ -46,8 +89,13 @@ const genMessage = (matchJson: { [key: string]: any }) => {
             } kills and ${deathJson2[pokemon]} deaths. \n`;
         }
     }
+    team1 += "```"
+    team2 += "```"
+    killedBy1 += "```"
+    killedBy2 += "```"
+    let copyPaste = `**Doc Copy-Paste:**\n||Team 1:\n${team1}\nTeam 2:\n${team2}\nDefeated by 1:\n${killedBy1}\nDefeated by 2:\n${killedBy2}||`
 
-    return [message1, message2];
+    return [message1, message2, copyPaste, warnings];
 };
 const genCSV = (matchJson: { [key: string]: any }) => {
     //retrieving info from the json object
@@ -237,6 +285,8 @@ const discordUpdate = async (
     let psPlayer2 = matchJson.playerNames[1];
     let message1 = messages[0];
     let message2 = messages[1];
+    let copyPaste = messages[2];
+    let warnings = messages[3];
 
     let finalMessage = "";
 
@@ -246,9 +296,9 @@ const discordUpdate = async (
         else finalMessage = message1;
     } else {
         if (info.rules.spoiler)
-            finalMessage = `**${psPlayer1}**: ||\n${message1}|| \n**${psPlayer2}**: ||\n${message2}||`;
+            finalMessage = `${warnings}**${psPlayer1}**: ||\n${message1}|| \n**${psPlayer2}**: ||\n${message2}\n||${copyPaste}`;
         else
-            finalMessage = `**${psPlayer1}**: \n${message1} \n**${psPlayer2}**: \n${message2}`;
+            finalMessage = `${warnings}**${psPlayer1}**: \n${message1} \n**${psPlayer2}**: \n${message2}${copyPaste}`;
     }
 
     if (info.rules.tb) {

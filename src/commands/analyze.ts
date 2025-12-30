@@ -14,6 +14,14 @@ export default {
     description: "Analyzes Pokemon Showdown replays.",
     aliases: ["analyse"],
     usage: "[replay link]",
+    options: [
+        {
+            name: "replay",
+            description: "Link to the replay to analyze",
+            type: 3,
+            required: true
+        }
+    ],
     async execute(
         interaction: CommandInteraction,
         options: CommandInteractionOptionResolver

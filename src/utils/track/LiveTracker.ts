@@ -293,7 +293,7 @@ class LiveTracker {
                             let killJsonp1: {
                                 [key: string]: { [key: string]: number };
                             } = {};
-                            let deathJsonp1: { [key: string]: number } = {};
+                            let deathJsonp1: { [key: string]: { count: number; killer: string } } = {};
                             for (let pokemonObj of Object.values(
                                 battle.p1Pokemon
                             )) {
@@ -314,16 +314,17 @@ class LiveTracker {
                                         direct: pokemonObj.directKills,
                                         passive: pokemonObj.passiveKills,
                                     };
-                                    deathJsonp1[realName] = pokemonObj.isDead
-                                        ? 1
-                                        : 0;
+                                    deathJsonp1[realName] = {
+                                        count: pokemonObj.isDead ? 1 : 0,
+                                        killer: pokemonObj.killer || ''
+                                    }
                                 }
                             }
                             //Player 2
                             let killJsonp2: {
                                 [key: string]: { [key: string]: number };
                             } = {};
-                            let deathJsonp2: { [key: string]: number } = {};
+                            let deathJsonp2: { [key: string]: { count: number; killer: string } } = {};
                             for (let pokemonObj of Object.values(
                                 battle.p2Pokemon
                             )) {
@@ -344,9 +345,10 @@ class LiveTracker {
                                         direct: pokemonObj.directKills,
                                         passive: pokemonObj.passiveKills,
                                     };
-                                    deathJsonp2[realName] = pokemonObj.isDead
-                                        ? 1
-                                        : 0;
+                                    deathJsonp2[realName] = {
+                                        count: pokemonObj.isDead ? 1 : 0,
+                                        killer: pokemonObj.killer || ''
+                                    }
                                 }
                             }
 
@@ -383,7 +385,7 @@ class LiveTracker {
                                                 [key: string]: number;
                                             };
                                         };
-                                        deaths: { [key: string]: number };
+                                        deaths: { [key: string]: { count: number; killer: string } };
                                     };
                                 },
                                 info: {},
@@ -415,7 +417,7 @@ class LiveTracker {
                                     ).filter(
                                         (pokemonKey) =>
                                             returnData.players[battle.winner]
-                                                .deaths[pokemonKey] == 1
+                                                .deaths[pokemonKey].count == 1
                                     ).length
                                 }-${
                                     Object.keys(
@@ -426,7 +428,7 @@ class LiveTracker {
                                     ).filter(
                                         (pokemonKey) =>
                                             returnData.players[battle.loser]
-                                                .deaths[pokemonKey] == 1
+                                                .deaths[pokemonKey].count == 1
                                     ).length
                                 }`,
                                 battleId: battle.id,
@@ -578,7 +580,7 @@ class LiveTracker {
                             let killJsonp1: {
                                 [key: string]: { [key: string]: number };
                             } = {};
-                            let deathJsonp1: { [key: string]: number } = {};
+                            let deathJsonp1: { [key: string]: { count: number; killer: string } } = {};
                             for (let pokemonObj of Object.values(
                                 battle.p1Pokemon
                             )) {
@@ -599,16 +601,17 @@ class LiveTracker {
                                         direct: pokemonObj.directKills,
                                         passive: pokemonObj.passiveKills,
                                     };
-                                    deathJsonp1[realName] = pokemonObj.isDead
-                                        ? 1
-                                        : 0;
+                                    deathJsonp1[realName] = {
+                                        count: pokemonObj.isDead ? 1 : 0,
+                                        killer: pokemonObj.killer || ''
+                                    }
                                 }
                             }
                             //Player 2
                             let killJsonp2: {
                                 [key: string]: { [key: string]: number };
                             } = {};
-                            let deathJsonp2: { [key: string]: number } = {};
+                            let deathJsonp2: { [key: string]: { count: number; killer: string } } = {};
                             for (let pokemonObj of Object.values(
                                 battle.p2Pokemon
                             )) {
@@ -629,9 +632,10 @@ class LiveTracker {
                                         direct: pokemonObj.directKills,
                                         passive: pokemonObj.passiveKills,
                                     };
-                                    deathJsonp2[realName] = pokemonObj.isDead
-                                        ? 1
-                                        : 0;
+                                    deathJsonp2[realName] = {
+                                        count: pokemonObj.isDead ? 1 : 0,
+                                        killer: pokemonObj.killer || ''
+                                    }
                                 }
                             }
 
@@ -666,7 +670,7 @@ class LiveTracker {
                                                 [key: string]: number;
                                             };
                                         };
-                                        deaths: { [key: string]: number };
+                                        deaths: { [key: string]: { count: number; killer: string } };
                                     };
                                 },
                                 info: {},
@@ -698,7 +702,7 @@ class LiveTracker {
                                     ).filter(
                                         (pokemonKey) =>
                                             returnData.players[battle.winner]
-                                                .deaths[pokemonKey] == 1
+                                                .deaths[pokemonKey].count == 1
                                     ).length
                                 }-${
                                     Object.keys(
@@ -709,7 +713,7 @@ class LiveTracker {
                                     ).filter(
                                         (pokemonKey) =>
                                             returnData.players[battle.loser]
-                                                .deaths[pokemonKey] == 1
+                                                .deaths[pokemonKey].count == 1
                                     ).length
                                 }`,
                                 battleId: battle.id,
@@ -2122,7 +2126,7 @@ class LiveTracker {
 
                 const errorMessage = `:x: Error with match number \`${
                     this.battlelink
-                }\`. I will be unable to analyze this match until you screenshot this message and send it to the Porygon server's bugs-and-help channel and ping harbar20 in the same channel.\n\n**Error:**\`\`\`${
+                }\`. I will be unable to analyze this match until you screenshot this message and send it to the Porygon server's bugs-and-help channel and ping Zeathus in the same channel.\n\n**Error:**\`\`\`${
                     e.message
                 }\nLine number: ${e.stack.split(":")[2]}\`\`\``;
 

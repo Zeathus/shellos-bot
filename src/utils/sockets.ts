@@ -1,4 +1,4 @@
-import { Socket } from "../types";
+import { Socket } from "../types/index.js";
 
 const sockets: { [key: string]: Socket } = {
     showdown: {

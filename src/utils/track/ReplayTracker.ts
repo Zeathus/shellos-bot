@@ -65,7 +65,12 @@ class ReplayTracker {
                                             [key: string]: number;
                                         };
                                     };
-                                    deaths: { [key: string]: number };
+                                    deaths: {
+                                        [key: string]: {
+                                            count: number;
+                                            killer: string;
+                                        };
+                                    };
                                     league_id?: string;
                                 };
                             },
@@ -186,7 +191,7 @@ class ReplayTracker {
                     let killJsonp1: {
                         [key: string]: { [key: string]: number };
                     } = {};
-                    let deathJsonp1: { [key: string]: number } = {};
+                    let deathJsonp1: { [key: string]: { count: number; killer: string } } = {};
                     for (let pokemonObj of Object.values(battle.p1Pokemon)) {
                         const realName = pokemonObj.realName;
 
@@ -205,14 +210,17 @@ class ReplayTracker {
                                 direct: pokemonObj.directKills,
                                 passive: pokemonObj.passiveKills,
                             };
-                            deathJsonp1[realName] = pokemonObj.isDead ? 1 : 0;
+                            deathJsonp1[realName] = {
+                                count: pokemonObj.isDead ? 1 : 0,
+                                killer: pokemonObj.killer || ''
+                            }
                         }
                     }
                     //Player 2
                     let killJsonp2: {
                         [key: string]: { [key: string]: number };
                     } = {};
-                    let deathJsonp2: { [key: string]: number } = {};
+                    let deathJsonp2: { [key: string]: { count: number; killer: string } } = {};
                     for (let pokemonObj of Object.values(battle.p2Pokemon)) {
                         const realName = pokemonObj.realName;
 
@@ -231,7 +239,10 @@ class ReplayTracker {
                                 direct: pokemonObj.directKills,
                                 passive: pokemonObj.passiveKills,
                             };
-                            deathJsonp2[realName] = pokemonObj.isDead ? 1 : 0;
+                            deathJsonp2[realName] = {
+                                count: pokemonObj.isDead ? 1 : 0,
+                                killer: pokemonObj.killer || ''
+                            }
                         }
                     }
 
@@ -264,7 +275,7 @@ class ReplayTracker {
                                 kills: {
                                     [key: string]: { [key: string]: number };
                                 };
-                                deaths: { [key: string]: number };
+                                deaths: { [key: string]: { count: number; killer: string } };
                             };
                         },
                         info: {},
@@ -296,7 +307,7 @@ class ReplayTracker {
                                 (pokemonKey) =>
                                     returnData.players[battle.winner].deaths[
                                         pokemonKey
-                                    ] == 1
+                                    ].count == 1
                             ).length
                         }-${
                             Object.keys(returnData.players[battle.loser].kills)
@@ -307,7 +318,7 @@ class ReplayTracker {
                                 (pokemonKey) =>
                                     returnData.players[battle.loser].deaths[
                                         pokemonKey
-                                    ] == 1
+                                    ].count == 1
                             ).length
                         }`,
                         battleId: battle.id,
@@ -688,7 +699,7 @@ class ReplayTracker {
                             | "p2a"
                             | "p2b";
 
-                        inflictor = battle[inflictorSide].name;
+                        inflictor = battle[inflictorSide].realName || battle[inflictorSide].name;
                         victim =
                             battle[victimSide].realName ||
                             battle[victimSide].name;
@@ -720,7 +731,7 @@ class ReplayTracker {
                                       .split(": ")[0]
                         ) as "p1a" | "p1b" | "p2a" | "p2b";
 
-                        inflictor = battle[inflictorSide].name;
+                        inflictor = battle[inflictorSide].realName || battle[inflictorSide].name;
                         battle[victimSide].statusEffect(
                             parts[2] === "tox" ? "psn" : parts[2],
                             inflictor,
@@ -745,7 +756,7 @@ class ReplayTracker {
                                 ? victimSide
                                 : parts[4].split("[of] ")[1].split(": ")[0]
                         ) as "p1a" | "p1b" | "p2a" | "p2b";
-                        inflictor = battle[inflictorSide].name;
+                        inflictor = battle[inflictorSide].realName || battle[inflictorSide].name;
                         victim =
                             battle[victimSide].realName ||
                             battle[victimSide].name;
@@ -809,7 +820,7 @@ class ReplayTracker {
                             | "p2a"
                             | "p2b";
 
-                        let inflictor = battle[inflictorSide].name;
+                        let inflictor = battle[inflictorSide].realName || battle[inflictorSide].name;
 
                         battle.addHazard(
                             parts[1].split(": ")[0],
@@ -900,7 +911,7 @@ class ReplayTracker {
                         } else {
                             let victim =
                                 battle[side].realName || battle[side].name;
-                            afflictor = battle[afflictorSide].name;
+                            afflictor = battle[afflictorSide].realName || battle[afflictorSide].name;
                             battle[side].otherAffliction[move] = afflictor;
 
                             console.log(
@@ -1188,7 +1199,7 @@ class ReplayTracker {
                                 ) {
                                     killer =
                                         this.rules.selfteam !== "N"
-                                            ? battle[oppositeSide].name
+                                            ? (battle[oppositeSide].realName || battle[oppositeSide].name)
                                             : "";
                                 }
 
@@ -1214,7 +1225,7 @@ class ReplayTracker {
                                 move.toLowerCase() === "recoil"
                             ) {
                                 if (this.rules.recoil !== "N")
-                                    killer = battle[oppositeSide].name;
+                                    killer = battle[oppositeSide].realName || battle[oppositeSide].name;
                                 else killer = "";
 
                                 let deathJson = battle[victimSide].died(
@@ -1491,7 +1502,7 @@ class ReplayTracker {
                                 battle[victimSide].realName ||
                                 battle[victimSide].name;
                             if (this.rules.db !== "N") {
-                                killer = battle[killerSide].name;
+                                killer = battle[killerSide].realName || battle[killerSide].name;
                             }
 
                             let deathJson = battle[victimSide].died(
@@ -1653,7 +1664,7 @@ class ReplayTracker {
                     [key: string]: {
                         ps: string;
                         kills: { [key: string]: { [key: string]: number } };
-                        deaths: { [key: string]: number };
+                        deaths: { [key: string]: { count: number; killer: string } };
                         league_id?: string;
                     };
                 },
@@ -1678,7 +1689,7 @@ class ReplayTracker {
                     [key: string]: {
                         ps: string;
                         kills: { [key: string]: { [key: string]: number } };
-                        deaths: { [key: string]: number };
+                        deaths: { [key: string]: { count: number; killer: string }};
                         league_id?: string;
                     };
                 },
@@ -1695,7 +1706,7 @@ class ReplayTracker {
                 },
                 error: `:x: Error with match number \`${
                     this.battlelink
-                }\`. I will be unable to analyze this match until you screenshot this message and send it to the Porygon server's bugs-and-help channel and ping harbar20 in the same channel.\n\n**Error:**\`\`\`${
+                }\`. I will be unable to analyze this match until you screenshot this message and send it to the Porygon server's bugs-and-help channel and ping Zeathus in the same channel.\n\n**Error:**\`\`\`${
                     e.message
                 }\nLine number: ${e.stack.split(":")[2]}\`\`\``,
             };

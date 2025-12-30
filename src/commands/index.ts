@@ -1,4 +1,9 @@
-import { Collection } from "discord.js";
+import { ChannelType, Collection, GuildTextBasedChannel } from "discord.js";
+import {
+    EmbedBuilder,
+    CommandInteraction,
+    CommandInteractionOptionResolver,
+} from "discord.js";
 import { Command } from "../types/index.js";
 import analyzeCommand from "./analyze.js";
 import deleteCommand from "./delete.js";
@@ -10,6 +15,7 @@ import modeCommand from "./mode.js";
 import renameCommand from "./rename.js";
 import ruleCommand from "./rule.js";
 import rulesCommand from "./rules.js";
+import leagueCommand from "./league.js"
 // import startTrackCommand from "./start-track.js";
 
 //Aggregating all the commands
@@ -24,6 +30,7 @@ const commandsArr: Command[] = [
     renameCommand,
     ruleCommand,
     rulesCommand,
+    leagueCommand,
     // startTrackCommand,
 ];
 

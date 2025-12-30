@@ -17,7 +17,7 @@ import { Rule } from "../types/index.js";
 export default {
     name: "rule",
     description:
-        "Creates a custom kill rule depending on the parameters. Run command without parameters for more info.",
+        "Creates a custom kill rule depending on the parameters.",
     usage: "[rule name with hyphen] [parameter]",
     async execute(
         interaction: CommandInteraction,

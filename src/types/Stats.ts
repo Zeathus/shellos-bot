@@ -5,7 +5,7 @@ interface Stats {
         [key: string]: {
             ps: string;
             kills: { [key: string]: { [key: string]: number } };
-            deaths: { [key: string]: number };
+            deaths: { [key: string]: { count: number; killer: string } };
             league_id?: string;
         };
     };
