@@ -16,6 +16,8 @@ import renameCommand from "./rename.js";
 import ruleCommand from "./rule.js";
 import rulesCommand from "./rules.js";
 import leagueCommand from "./league.js"
+import draftCommand from "./draft.js"
+import pfpCommand from "./pfp.js"
 // import startTrackCommand from "./start-track.js";
 
 //Aggregating all the commands
@@ -31,6 +33,8 @@ const commandsArr: Command[] = [
     ruleCommand,
     rulesCommand,
     leagueCommand,
+    draftCommand,
+    pfpCommand,
     // startTrackCommand,
 ];
 

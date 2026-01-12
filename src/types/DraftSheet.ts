@@ -6,7 +6,12 @@ import fs from "fs";
 import sqlite3 from 'sqlite3';
 import Stats from "./Stats.js";
 import axios from "axios";
+import { columnToLetter } from "../utils/pokemon.js";
+import { Client } from "discord.js";
 const db = new sqlite3.Database("database.sqlite");
+
+export const initialDraftMinutes = 6 * 60;
+export const addedDraftMinutesEachPick = 30;
 
 db.serialize(() => {
     // Ensure database tables
@@ -39,6 +44,7 @@ export async function getPokemonToTier() {
             }
             if (row) {
                 resolve(row.pokemon);
+                return;
             }
             resolve(undefined);
         });
@@ -51,6 +57,7 @@ export async function getPokemonToTier() {
             }
             if (row) {
                 resolve(row.pokemon);
+                return;
             }
             resolve(undefined);
         });
@@ -66,6 +73,7 @@ async function getELORating(pokemon: string) {
             }
             if (row) {
                 resolve(row.elo);
+                return;
             }
             resolve(undefined);
         });
@@ -167,32 +175,20 @@ const toShowdownKey = (showdown_name: string | undefined) => {
     return showdown_name.replace(re, "").toLowerCase();
 }
 
-const columnToLetter = (column: number) => {
-    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let columnName = "";
-    while (true) {
-        columnName = alphabet.charAt((column % alphabet.length)) + columnName;
-        column -= column % alphabet.length;
-        if (column <= 0) {
-            break;
-        } else {
-            column = Math.floor(column / alphabet.length) - 1;
-        }
-    }
-    return columnName;
-}
-
 export enum DraftChannelType {
     GENERIC = 0,
     ANNOUNCEMENTS = 1,
     SCHEDULING = 2,
     REPLAYS = 3,
     PICKEMS = 4,
+    GAME_STATS = 5,
+    DRAFT = 6
 }
 
 export enum LeagueStatus {
     ACTIVE = 0,
     INACTIVE = 1,
+    DRAFTING = 2,
 }
 
 export enum LeagueGroupType {
@@ -208,16 +204,17 @@ export enum DiscordIdType {
 export enum DraftPokemonFlag {
     NONE = 0,
     BANNED = 1,
+    DRAFTED = 2,
 }
 
-interface DraftPlayer {
+export interface DraftPlayer {
     number: number,
     name: string,
     teamName?: string,
     timeZone?: string,
     showdownName?: string,
     discordId?: string,
-    team: string[],
+    team: DraftTeamPokemon[],
 }
 
 interface DraftMatch {
@@ -225,6 +222,7 @@ interface DraftMatch {
     p2: string,
     week: number,
     match: number,
+    played?: boolean,
 }
 
 interface DraftBoardPokemon {
@@ -234,19 +232,32 @@ interface DraftBoardPokemon {
     flags: number,
 }
 
+interface DraftTeamPokemon {
+    name: string,
+    tera: boolean,
+}
+
 export async function createPickems(player1: DraftPlayer, player2: DraftPlayer) {
     const image = await Jimp.read(`${process.env.IMAGE_PATH}/pickems_bg.png`)
+    const teraImage = await Jimp.read(`${process.env.IMAGE_PATH}/terastal.png`)
+    teraImage.resize({w: 40, h: 40});
     for (let i = 0; i < player1.team.length; i++) {
         const pokemon = player1.team[i];
-        const pokemonImage = await Jimp.read(`${process.env.IMAGE_PATH}/pokemon/${pokemon}.png`);
+        const pokemonImage = await Jimp.read(`${process.env.IMAGE_PATH}/pokemon/${pokemon.name}.png`);
         pokemonImage.resize({w: 128, h: 128});
         image.composite(pokemonImage, 48 + 256 + (i % 5) * 128, 16 + Math.floor(i / 5) * 128);
+        if (pokemon.tera) {
+            image.composite(teraImage, 48 + 256 + (i % 5) * 128, 16 + Math.floor(i / 5) * 128);
+        }
     }
     for (let i = 0; i < player2.team.length; i++) {
         const pokemon = player2.team[i];
-        const pokemonImage = await Jimp.read(`${process.env.IMAGE_PATH}/pokemon/${pokemon}.png`);
+        const pokemonImage = await Jimp.read(`${process.env.IMAGE_PATH}/pokemon/${pokemon.name}.png`);
         pokemonImage.resize({w: 128, h: 128});
         image.composite(pokemonImage, 16 + (i % 5) * 128, 48 + 256 + 64 + Math.floor(i / 5) * 128);
+        if (pokemon.tera) {
+            image.composite(teraImage, 16 + (i % 5) * 128, 48 + 256 + 64 + Math.floor(i / 5) * 128);
+        }
     }
 
     const font = await loadFont(`${process.env.IMAGE_PATH}/Cabin-32.fnt`);
@@ -364,6 +375,7 @@ async function downloadPokemonImages() {
 class DraftSheet {
     id?: number;
 	sheet_id: string;
+    status: number;
     categories: string[];
     setup: {
         league_name: string,
@@ -377,6 +389,7 @@ class DraftSheet {
 
 	constructor(sheet_id: string) {
         this.sheet_id = sheet_id;
+        this.status = 0;
         this.categories = [];
         this.setup = {
             league_name: "",
@@ -415,8 +428,24 @@ class DraftSheet {
                     sheet.id = row.league_id;
                     sheet.categories.push(category_id);
                     resolve(sheet);
+                    return;
                 }
                 resolve(undefined);
+            });
+        });
+    }
+
+    static async check_pokemon_form_dict(pokemon_name: string) {
+        return await new Promise<string>((resolve, reject) => {
+            db.get("SELECT doc_form FROM PokemonFormDictionary WHERE full_form = ?", [pokemon_name], (err, row: any) => {
+                if (err) {
+                    throw err;
+                }
+                if (!row) {
+                    resolve(pokemon_name);
+                    return;
+                }
+                resolve(row.doc_form);
             });
         });
     }
@@ -429,6 +458,7 @@ class DraftSheet {
                 }
                 if (!row) {
                     resolve(undefined);
+                    return;
                 }
                 const sheet = new DraftSheet(row.sheet_id);
                 sheet.id = row.league_id;
@@ -438,16 +468,44 @@ class DraftSheet {
         if (!sheet) {
             return {success: false};
         }
+
+        if (matchJson.info.replay.length > 1) {
+            let needsVerification = false;
+            for (const pokemon of Object.keys(matchJson.players[matchJson.playerNames[0]].deaths)) {
+                if (pokemon == "Zoroark" || pokemon == "Zoroark-Hisui") {
+                    needsVerification = true;
+                    break;
+                }
+            }
+            if (!needsVerification) {
+                for (const pokemon of Object.keys(matchJson.players[matchJson.playerNames[1]].deaths)) {
+                    if (pokemon == "Zoroark" || pokemon == "Zoroark-Hisui") {
+                        needsVerification = true;
+                        break;
+                    }
+                }
+            }
+            if (needsVerification) {
+                const modRole = await sheet.get_mod_role();
+                let msg = "This match needs manual verification. Usually means a Zoroark is involved."
+                if (modRole) {
+                    msg = `<@&${modRole}>: ` + msg;
+                }
+                return {success: false, msg: msg};
+            }
+        }
+
         const match = await new Promise<DraftMatch | undefined>((resolve, reject) => {
             db.get(
-                "SELECT league_id, a.name AS name_a, b.name AS name_b FROM LeaguePlayer a JOIN LeaguePlayer b USING (league_id) WHERE league_id = ? AND a.showdown_key = ? AND b.showdown_key = ?",
-                [sheet.id, toShowdownKey(matchJson.playerNames[0]), toShowdownKey(matchJson.playerNames[1])],
+                "SELECT league_id, a.name AS name_a, b.name AS name_b FROM LeaguePlayer a JOIN LeaguePlayer b USING (league_id) WHERE league_id = ? AND (a.showdown_key = ? AND b.showdown_key = ?) OR (a.name = ? AND b.name = ?)",
+                [sheet.id, toShowdownKey(matchJson.playerNames[0]), toShowdownKey(matchJson.playerNames[1]), matchJson.playerNames[0], matchJson.playerNames[1]],
                 (err, row: any) => {
                     if (err) {
                         throw err;
                     }
                     if (!row) {
                         resolve(undefined);
+                        return;
                     }
                     resolve({
                         p1: row.name_a,
@@ -490,6 +548,7 @@ class DraftSheet {
                     (m.p1 == match.p2 && m.p2 == match.p1)) {
                     match.week = i;
                     match.match = j + 1;
+                    match.played = m.played;
                     if (m.p1 == match.p2) {
                         flip_match = true;
                     }
@@ -501,14 +560,18 @@ class DraftSheet {
             }
         }
 
+        if (match.played) {
+            return {success: false, msg: `This match has already been registered. If the one on the sheet is wrong, clear it then post the replay again.`};
+        }
+
         if (match.week == 0 || match.match == 0) {
             await sheet.release_sheets();
-            return {success: false};
+            return {success: false, msg: "There is no match on the schedule between these two players."};
         }
 
         console.log(`Match #${match.match} for week ${match.week}`);
 
-        const makeTeamRange = (
+        const makeTeamRange = async (
             killJson: {
                 [key: string]: {
                     [key: string]: number;
@@ -531,14 +594,14 @@ class DraftSheet {
             const keys = Object.keys(killJson);
             for (let i = 0; i < keys.length; i++) {
                 const pokemon = keys[i];
-                values[i][second ? 1 : 0] = pokemon;
+                values[i][second ? 1 : 0] = await DraftSheet.check_pokemon_form_dict(pokemon);
                 if (deathJson[pokemon].count == 0) {
                     values[i][second ? 0 : 1] = undefined;
                 } else {
                     if (deathJson[pokemon].killer === "") {
                         values[i][second ? 0 : 1] = "Self KO";
                     } else {
-                        values[i][second ? 0 : 1] = deathJson[pokemon].killer;
+                        values[i][second ? 0 : 1] = await DraftSheet.check_pokemon_form_dict(deathJson[pokemon].killer);
                     }
                 }
             }
@@ -559,11 +622,11 @@ class DraftSheet {
             data: [
                 {
                     range: `'Match Stats'!${columnToLetter(3 + (match.week - 1) * 12)}${startRow}:${columnToLetter(4 + (match.week - 1) * 12)}${startRow + 5}`,
-                    values: makeTeamRange(killJson1, deathJson1, false)
+                    values: await makeTeamRange(killJson1, deathJson1, false)
                 },
                 {
                     range: `'Match Stats'!${columnToLetter(8 + (match.week - 1) * 12)}${startRow}:${columnToLetter(9 + (match.week - 1) * 12)}${startRow + 5}`,
-                    values: makeTeamRange(killJson2, deathJson2, true)
+                    values: await makeTeamRange(killJson2, deathJson2, true)
                 },
                 {
                     range: `'Match Stats'!${columnToLetter(2 + (match.week - 1) * 12)}${startRow + 7}`,
@@ -640,11 +703,12 @@ class DraftSheet {
     async load_from_db() {
         await new Promise<boolean>((resolve, reject) => {
             db.serialize(() => {
-                db.get("SELECT name, budget, players, weeks FROM League WHERE league_id = ?", [this.id], (err, row: any) => {
+                db.get("SELECT name, budget, players, weeks, status FROM League WHERE league_id = ?", [this.id], (err, row: any) => {
                     this.setup.league_name = row.name;
                     this.setup.budget = row.budget;
                     this.setup.players = row.players;
                     this.setup.weeks = row.weeks;
+                    this.status = row.status;
                     resolve(true);
                 });
             })
@@ -717,6 +781,7 @@ class DraftSheet {
             this.errors.push("Could not fetch Setup player list.");
             return false;
         }
+
         for (const row of rows) {
             try {
                 const player = {
@@ -734,7 +799,21 @@ class DraftSheet {
                     player.timeZone = row[3];
                 }
                 if (loadTeams) {
-                    player.team = await this.load_team(player.number);
+                    player.team = await this.load_team(player.number, player.name);
+                }
+                if (this.id) {
+                    player.discordId = await new Promise<string | undefined>((resolve, reject) => {
+                        db.get("SELECT discord_id FROM LeaguePlayer WHERE league_id = ? AND player_number = ?", [this.id, player.number], (err, pRow: any) => {
+                            if (err) {
+                                throw err;
+                            }
+                            if (!pRow) {
+                                resolve(undefined);
+                                return;
+                            }
+                            resolve(pRow.discord_id);
+                        });
+                    });
                 }
                 this.players.push(player);
             } catch (err) {
@@ -744,8 +823,8 @@ class DraftSheet {
         };
     }
 
-    async load_team(playerNumber: number) {
-        const team: string[] = [];
+    async load_team(playerNumber: number, coach: string) {
+        const team: DraftTeamPokemon[] = [];
         const sheets = this.get_sheets();
         const teamRow = 2 + playerNumber;
         const result = (await sheets).spreadsheets.values.get({
@@ -754,13 +833,32 @@ class DraftSheet {
         })
         const rows = (await result).data.values;
         if (!rows || rows.length === 0) {
-            this.errors.push("Could not fetch player team.");
+            // this.errors.push("Could not fetch player team.");
             return team;
         }
         const row = rows[0];
         for (let i = 0; i < 10; i++) {
             if (row.length > i && row[i] && row[i].length > 0) {
-                team.push(row[i]);
+                team.push({
+                    name: row[i],
+                    tera: false,
+                });
+            }
+        }
+        const teraResult = (await sheets).spreadsheets.values.get({
+            spreadsheetId: this.sheet_id,
+            range: `'Team Data'!$A$22:$B$69`,
+        });
+        const teras = (await teraResult).data.values;
+        if (teras && teras.length > 0) {
+            for (const tera of teras) {
+                if (tera[0] === coach) {
+                    for (let i = 0; i < team.length; i++) {
+                        if (team[i].name == tera[1]) {
+                            team[i].tera = true;
+                        }
+                    }
+                }
             }
         }
         return team;
@@ -770,7 +868,7 @@ class DraftSheet {
         const sheets = this.get_sheets();
         const result = (await sheets).spreadsheets.values.get({
             spreadsheetId: this.sheet_id,
-            range: `'Pokedex'!B3:L`,
+            range: `'Pokedex'!B3:M`,
         })
         const rows = (await result).data.values;
         if (!rows || rows.length === 0) {
@@ -779,6 +877,10 @@ class DraftSheet {
         }
         return await new Promise<number>((resolve, reject) => {
             db.serialize(() => {
+                db.run(
+                    "DELETE FROM LeagueDraftBoard WHERE league_id = ?",
+                    [this.id]
+                )
                 for (const row of rows) {
                     let cost = 0;
                     let flags = 0;
@@ -797,7 +899,7 @@ class DraftSheet {
                         flags = DraftPokemonFlag.BANNED;
                     }
                     const pkmn: DraftBoardPokemon = {
-                        name: row[10],
+                        name: row[11],
                         githubName: row[0],
                         cost: cost,
                         flags: flags,
@@ -813,10 +915,112 @@ class DraftSheet {
                     }
                     if (!row) {
                         resolve(0);
+                        return;
                     }
                     resolve(row.count);
                 });
             });
+        });
+    }
+
+    async get_draft_board_pokemon(pokemon: string) {
+        return await new Promise<DraftBoardPokemon | undefined>((resolve, reject) => {
+            db.get("SELECT pokemon, github_name, cost, flags FROM LeagueDraftBoard WHERE league_id = ? AND pokemon = ? COLLATE NOCASE", [this.id, pokemon], (err, row: any) => {
+                if (err) {
+                    throw err;
+                }
+                if (!row) {
+                    resolve(undefined);
+                    return;
+                }
+                resolve({
+                    name: row.pokemon,
+                    githubName: row.github_name,
+                    cost: row.cost,
+                    flags: row.flags,
+                });
+            });
+        });
+    }
+
+    async set_pokemon_drafted(pokemon: string) {
+        return await new Promise<boolean>((resolve, reject) => {
+            db.run("UPDATE LeagueDraftBoard SET flags = flags | ? WHERE league_id = ? AND pokemon = ? COLLATE NOCASE", [DraftPokemonFlag.DRAFTED, this.id, pokemon], (err) => {
+                resolve(true);
+            })
+        });
+    }
+
+    async set_status(newStatus: number) {
+        return await new Promise<boolean>((resolve, reject) => {
+            db.run("UPDATE League SET status = ? WHERE league_id = ?", [newStatus, this.id], (err) => {
+                resolve(true);
+            })
+        });
+    }
+
+    async get_player_pick_start(player_number: number) {
+        return await new Promise<number>((resolve, reject) => {
+            db.get("SELECT pick_start FROM LeagueDraftTimer WHERE league_id = ? AND player_id = ?", [this.id, player_number], (err, row: any) => {
+                if (err) {
+                    throw err;
+                }
+                if (!row) {
+                    resolve(-1);
+                    return;
+                }
+                resolve(row.pick_start);
+            });
+        });
+    }
+
+    async set_player_pick_start(player_number: number, time: number) {
+        return await new Promise<boolean>((resolve, reject) => {
+            db.run("UPDATE LeagueDraftTimer SET pick_start = ? WHERE league_id = ? AND player_id = ?", [time, this.id, player_number], (err) => {
+                resolve(true);
+            })
+        });
+    }
+
+    async get_player_draft_timer(player_number: number) {
+        return await new Promise<number>((resolve, reject) => {
+            db.get("SELECT minutes FROM LeagueDraftTimer WHERE league_id = ? AND player_id = ?", [this.id, player_number], (err, row: any) => {
+                if (err) {
+                    throw err;
+                }
+                if (!row) {
+                    resolve(-1);
+                    return;
+                }
+                resolve(row.minutes);
+            });
+        });
+    }
+
+    async set_player_draft_timer(player_number: number, minutes: number) {
+        return await new Promise<boolean>((resolve, reject) => {
+            db.run("UPDATE LeagueDraftTimer SET minutes = ? WHERE league_id = ? AND player_id = ?", [minutes, this.id, player_number], (err) => {
+                resolve(true);
+            })
+        });
+    }
+
+    async reset_draft_timers() {
+        return await new Promise<boolean>((resolve, reject) => {
+            db.serialize(() => {
+                db.run("DELETE FROM LeagueDraftTimer WHERE league_id = ?", [this.id]);
+                for (const p of this.players) {
+                    db.run(
+                        "INSERT INTO LeagueDraftTimer (league_id, player_id, pick_start, minutes) VALUES (?, ?, ?, ?)",
+                        [this.id, p.number, (p === this.players[0]) ? Date.now() : 0, initialDraftMinutes],
+                        (err) => {
+                            if (p === this.players[this.players.length - 1]) {
+                                resolve(true);
+                            }
+                        }
+                    );
+                }
+            })
         });
     }
 
@@ -851,6 +1055,7 @@ class DraftSheet {
                         p2: row[8],
                         week: week,
                         match: i,
+                        played: row[3] !== "?" && row[7] !== "?"
                     } as DraftMatch);
                 }
             }
@@ -869,6 +1074,32 @@ class DraftSheet {
         });
     }
 
+    async set_mod_role(role_id: string) {
+        return await new Promise((resolve, reject) => {
+            db.serialize(() => {
+                db.run("DELETE FROM LeagueGroup WHERE league_id = ? AND group_type = ?", [this.id, LeagueGroupType.MODERATOR]);
+                db.run("INSERT INTO LeagueGroup (league_id, group_type, discord_id_type, discord_id) VALUES (?, ?, ?, ?)", [this.id, LeagueGroupType.MODERATOR, DiscordIdType.ROLE, role_id], (err) => {
+                    resolve(true);
+                });
+            });
+        });
+    }
+
+    async get_mod_role() {
+        return await new Promise<string | undefined>((resolve, reject) => {
+            db.get("SELECT discord_id FROM LeagueGroup WHERE league_id=? AND group_type = ?", [this.id, LeagueGroupType.MODERATOR], (err, row: any) => {
+                if (err) {
+                    throw err;
+                }
+                if (row) {
+                    resolve(row.discord_id);
+                    return;
+                }
+                resolve(undefined);
+            });
+        });
+    }
+
     async save() {
         let success = true;
 
@@ -881,6 +1112,7 @@ class DraftSheet {
                     }
                     if (row) {
                         resolve(row.league_id);
+                        return;
                     }
                     resolve(undefined);
                 });
@@ -904,8 +1136,57 @@ class DraftSheet {
                     }
                     if (row) {
                         resolve(row.league_id);
+                        return;
                     }
                     resolve(undefined);
+                });
+            });
+
+            if (this.id !== undefined) {
+                await new Promise((resolve, reject) => {
+                    db.serialize(() => {
+                        let stmt = db.prepare("INSERT OR IGNORE INTO LeagueCategory (category, league_id) VALUES (?, ?)");
+                        for (const cat of this.categories) {
+                            stmt.run(cat, this.id);
+                        }
+                        stmt.finalize();
+
+                        stmt = db.prepare("INSERT OR IGNORE INTO LeaguePlayer (league_id, player_number, name, team_name, time_zone, showdown_name, showdown_key, discord_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                        for (const p of this.players) {
+                            stmt.run(this.id, p.number, p.name, p.teamName, p.timeZone, p.showdownName, toShowdownKey(p.showdownName), p.discordId);
+                        }
+                        stmt.finalize((err) => {
+                            resolve(true);
+                        });
+                    });
+                });
+            }
+        } else {
+            await new Promise((resolve, reject) => {
+                db.prepare("UPDATE League SET name=?, budget=?, players=?, weeks=? WHERE league_id=?")
+                    .run(this.setup.league_name, this.setup.budget, this.setup.players, this.setup.weeks, this.id)
+                    .finalize((err) => {
+                        resolve(true);
+                    });
+            });
+
+            await new Promise((resolve, reject) => {
+                db.prepare("DELETE FROM LeaguePlayer WHERE league_id = ?")
+                    .run(this.id)
+                    .finalize(() => {
+                        resolve(true);
+                    });
+            });
+
+            await new Promise((resolve, reject) => {
+                db.serialize(() => {
+                    const stmt = db.prepare("INSERT OR IGNORE INTO LeaguePlayer (league_id, player_number, name, team_name, time_zone, showdown_name, showdown_key, discord_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                    for (const p of this.players) {
+                        stmt.run(this.id, p.number, p.name, p.teamName, p.timeZone, p.showdownName, toShowdownKey(p.showdownName), p.discordId);
+                    }
+                    stmt.finalize((err) => {
+                        resolve(true);
+                    });
                 });
             });
         }
@@ -916,19 +1197,189 @@ class DraftSheet {
             return;
         }
 
-        let stmt = db.prepare("INSERT OR IGNORE INTO LeagueCategory (category, league_id) VALUES (?, ?)");
-        for (const cat of this.categories) {
-            stmt.run(cat, this.id);
-        }
-        stmt.finalize();
-
-        stmt = db.prepare("INSERT OR IGNORE INTO LeaguePlayer (league_id, player_number, name, team_name, time_zone, showdown_name, showdown_key, discord_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        for (const p of this.players) {
-            stmt.run(this.id, p.number, p.name, p.teamName, p.timeZone, p.showdownName, toShowdownKey(p.showdownName), p.discordId);
-        }
-        stmt.finalize();
-
         return success;
+    }
+
+    static async update_ongoing_drafts(client: Client) {
+        const leagues = await new Promise<{league_id: number, category: string}[]>((resolve, reject) => {
+            db.all("SELECT league_id, category FROM League JOIN LeagueCategory USING (league_id) WHERE status = ?", [LeagueStatus.DRAFTING], (err, rows: any) => {
+                if (err) {
+                    throw err;
+                }
+                resolve(rows);
+            });
+        });
+
+        for (const league of leagues) {
+            const sheet = await DraftSheet.from_category(league.category);
+            if (!sheet || !sheet.id) {
+                continue;
+            }
+            const latestPickStart = await new Promise<number>((resolve, reject) => {
+                db.get("SELECT MAX(pick_start) AS latest FROM LeagueDraftTimer WHERE league_id = ?", [sheet.id], (err, row: any) => {
+                    if (err) {
+                        throw err;
+                    }
+                    if (!row) {
+                        resolve(0);
+                        return;
+                    }
+                    resolve(row.latest);
+                });
+            });
+            const pickingPlayer = await new Promise<number>((resolve, reject) => {
+                db.get("SELECT player_id FROM LeagueDraftTimer WHERE league_id = ? AND pick_start = ?", [sheet.id, latestPickStart], (err, row: any) => {
+                    if (err) {
+                        throw err;
+                    }
+                    if (!row) {
+                        resolve(0);
+                        return;
+                    }
+                    resolve(row.player_id);
+                });
+            });
+            const timeRemaining = await sheet.get_player_draft_timer(pickingPlayer);
+            const timeNow = Date.now();
+            const minutesElapsed = Math.floor((timeNow - latestPickStart) / 60000);
+            const realTimeRemaining = timeRemaining - minutesElapsed;
+            if (
+                realTimeRemaining != 0 && minutesElapsed >= 5 && (
+                (realTimeRemaining % 60 === 0) ||
+                (realTimeRemaining <= 60 && realTimeRemaining % 30 === 0) ||
+                (realTimeRemaining <= 30 && realTimeRemaining % 10 === 0) ||
+                (realTimeRemaining <= 15 && realTimeRemaining % 5 == 0) ||
+                (realTimeRemaining < 0))
+            ) {
+                const draftChannel = await new Promise<string | undefined>((resolve, reject) => {
+                    db.get("SELECT channel FROM LeagueChannel WHERE league_id = ? AND channel_type = ?", [sheet.id, DraftChannelType.DRAFT], (err, row: any) => {
+                        if (err) {
+                            throw err;
+                        }
+                        if (!row) {
+                            resolve(undefined);
+                            return;
+                        }
+                        resolve(row.channel);
+                    });
+                });
+                const channel = draftChannel ? await client.channels.fetch(draftChannel) : null;
+                if (channel && channel.isTextBased()) {
+                    await sheet.load_from_db();
+                    await sheet.load_players(false);
+                    const player = sheet.players.find(p => (p.number === pickingPlayer));
+
+                    let msg = "";
+                    if (!player) {
+                        msg += "The picking player (ShellOS failed to find the player FYI <@174222766084456449>)";
+                    } else if (player.discordId && player.discordId.length > 2) {
+                        msg += `<@${player.discordId}>`;
+                    } else {
+                        msg += player.name;
+                    }
+
+                    if (realTimeRemaining <= 0) {
+                        msg += ` was skipped for taking too long.\nThey will have ${addedDraftMinutesEachPick} minutes for their next pick.`;
+                        await channel.send(msg);
+                        if (player) {
+                            await sheet.set_player_draft_timer(player.number, addedDraftMinutesEachPick);
+                            const sheets = await sheet.get_sheets();
+                            player.team = await sheet.load_team(player.number, player.name);
+                            const resource: sheets_v4.Schema$BatchUpdateValuesRequest = {
+                                data: [
+                                    {
+                                        range: `'Team Data'!${columnToLetter(1 + player.team.length)}${2 + player.number}`,
+                                        values: [[ "-" ]]
+                                    }
+                                ],
+                                valueInputOption: "RAW"
+                            }
+
+                            await sheets.spreadsheets.values.batchUpdate({
+                                spreadsheetId: sheet.sheet_id,
+                                resource
+                            } as sheets_v4.Params$Resource$Spreadsheets$Values$Batchupdate);
+
+                            const snakeDirection = (player.team.length % 2 == 0) ? 1 : -1;
+                            let nextPlayer = undefined;
+                            for (const p of sheet.players) {
+                                let nextNumber = player.number + snakeDirection;
+                                if (nextNumber < 1) {
+                                    nextNumber = 1;
+                                } else if (nextNumber > sheet.setup.players) {
+                                    nextNumber = sheet.setup.players;
+                                }
+                                if (p.number === nextNumber) {
+                                    nextPlayer = p;
+                                    break;
+                                }
+                            }
+                            if (!nextPlayer) {
+                                await channel.send(`An unknown error occurred when finding the next player to draft.`);
+                                return;
+                            }
+                            if (nextPlayer.team.length >= 10 || (nextPlayer == player && player.team.length >= 9)) {
+                                await sheet.set_status(LeagueStatus.ACTIVE);
+                                await channel.send("# The draft is complete!");
+                            } else {
+                                const result = sheets.spreadsheets.values.get({
+                                    spreadsheetId: sheet.sheet_id,
+                                    range: `'Team Data'!L${2 + nextPlayer.number}`,
+                                })
+                                const rows = (await result).data.values;
+                                const nextRemainingBudget = (!rows || rows.length === 0) ? -1 : parseInt(rows[0][0]);
+
+                                nextPlayer.team = await sheet.load_team(nextPlayer.number, nextPlayer.name);
+
+                                let msg = "";
+                                if (nextPlayer.discordId && nextPlayer.discordId.length > 2) {
+                                    msg += `Next to draft is <@${nextPlayer.discordId}>!`
+                                } else {
+                                    msg += `Next to draft is ${nextPlayer.name}!\nThe coach does not have a discord user linked.`
+                                }
+
+                                msg += `\nYou have ${nextRemainingBudget < 0 ? "?" : nextRemainingBudget} points to draft ${10 - nextPlayer.team.length} more Pokémon.`
+
+                                let minRemaining = await sheet.get_player_draft_timer(nextPlayer.number);
+                                let hours = 0;
+
+                                while (minRemaining > 60) {
+                                    minRemaining -= 60;
+                                    hours += 1;
+                                }
+                                if (hours > 0) {
+                                    msg += `\nYou have ${hours} ${hours === 1 ? "hour" : "hours"} and ${minRemaining} ${minRemaining === 1 ? "minute" : "minutes"} to pick.`;
+                                } else {
+                                    msg += `\nYou have ${minRemaining} ${minRemaining === 1 ? "minute" : "minutes"} to pick.`;
+                                }
+
+                                await channel.send(msg);
+                                await sheet.set_player_pick_start(nextPlayer.number, Date.now());
+                            }
+                        } else {
+                            await channel.send("Something went wrong skipping the player.");
+                        }
+                    } else {
+                        let minRemaining = realTimeRemaining;
+                        let hours = 0;
+
+                        while (minRemaining > 60) {
+                            minRemaining -= 60;
+                            hours += 1;
+                        }
+                        if (hours > 0) {
+                            msg += ` has ${hours} ${hours === 1 ? "hour" : "hours"} and ${minRemaining} ${minRemaining === 1 ? "minute" : "minutes"} left to pick.`;
+                        } else {
+                            msg += ` has ${minRemaining} ${minRemaining === 1 ? "minute" : "minutes"} left to pick.`;
+                        }
+                        await channel.send(msg);
+                    }
+                } else {
+                    console.log("FAILED TO GET DRAFT CHANNEL TO REMIND DRAFTING PLAYER");
+                }
+            }
+            console.log(`${minutesElapsed} minutes have elapsed for player #${pickingPlayer}. They have ${realTimeRemaining} minutes remaining.`);
+        }
     }
 }
 
