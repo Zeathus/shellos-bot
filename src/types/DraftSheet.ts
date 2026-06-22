@@ -266,15 +266,13 @@ export async function createPickems(player1: DraftPlayer, player2: DraftPlayer) 
 
     try {
         const logo1 = await Jimp.read(`${process.env.IMAGE_PATH}/logos/${player1.teamName}.png`);
-        if (logo1.width > logo1.height) {
-            const ratio = logo1.height / logo1.width;
-            logo1.resize({w: logoSize.w, h: Math.floor(logoSize.h * ratio)});
-        } else if (logo1.height > logo1.width) {
-            const ratio = logo1.width / logo1.height;
-            logo1.resize({w: Math.floor(logoSize.w * ratio), h: logoSize.h});
-        } else {
-            logo1.resize({w: logoSize.h, h: logoSize.h});
+        let newWidth = logoSize.w;
+        let newHeight = logo1.height * (newWidth / logo1.width);
+        if (newHeight > logoSize.h) {
+            newHeight = logoSize.h;
+            newWidth = logo1.width * (newHeight / logo1.height);
         }
+        logo1.resize({w: newWidth, h: newHeight});
         image.composite(logo1,
             16 + ((logoSize.w - logo1.width) / 2),
             16 + ((logoSize.h - logo1.height) / 2)
@@ -291,15 +289,13 @@ export async function createPickems(player1: DraftPlayer, player2: DraftPlayer) 
 
     try {
         const logo2 = await Jimp.read(`${process.env.IMAGE_PATH}/logos/${player2.teamName}.png`);
-        if (logo2.width > logo2.height) {
-            const ratio = (logo2.height / logoSize.h) / (logo2.width / logoSize.w);
-            logo2.resize({w: logoSize.w, h: Math.floor(logoSize.h * ratio)});
-        } else if (logo2.height > logo2.width) {
-            const ratio = (logo2.width / logoSize.w) / (logo2.height / logoSize.h);
-            logo2.resize({w: Math.floor(logoSize.w * ratio), h: logoSize.h});
-        } else {
-            logo2.resize({w: logoSize.h, h: logoSize.h});
+        let newWidth = logoSize.w;
+        let newHeight = logo2.height * (newWidth / logo2.width);
+        if (newHeight > logoSize.h) {
+            newHeight = logoSize.h;
+            newWidth = logo2.width * (newHeight / logo2.height);
         }
+        logo2.resize({w: newWidth, h: newHeight});
         image.composite(
             logo2,
             image.width - 288 - 16 + ((logoSize.w - logo2.width) / 2),
@@ -517,7 +513,7 @@ class DraftSheet {
             )
         });
         if (!match) {
-            return {success: false};
+            return {success: false, msg:  "Failed to find the players on the sheet. If this is incorrect and the sheet was recently updated, a moderator must use `/league reload`."};
         }
 
         await sheet.prepare_sheets();
@@ -533,7 +529,7 @@ class DraftSheet {
         if (permissionResponse.data.capabilities && !permissionResponse.data.capabilities.canEdit) {
             console.log("No edit rights");
             await sheet.release_sheets();
-            return {success: false};
+            return {success: false, msg: "The bot is missing rights to edit the sheet."};
         }
 
         await sheet.load_setup();
@@ -598,7 +594,7 @@ class DraftSheet {
                 if (deathJson[pokemon].count == 0) {
                     values[i][second ? 0 : 1] = undefined;
                 } else {
-                    if (deathJson[pokemon].killer === "") {
+                    if (deathJson[pokemon].killer === "" || pokemon === deathJson[pokemon].killer) {
                         values[i][second ? 0 : 1] = "Self KO";
                     } else {
                         values[i][second ? 0 : 1] = await DraftSheet.check_pokemon_form_dict(deathJson[pokemon].killer);
@@ -786,17 +782,17 @@ class DraftSheet {
             try {
                 const player = {
                     number: parseInt(row[0]),
-                    name: row[1],
+                    name: row[1].trim(),
                     team: [],
                 } as DraftPlayer;
                 if (row[5] && row[5].length > 0) {
-                    player.showdownName = row[5];
+                    player.showdownName = row[5].trim();
                 }
                 if (row[2] && row[2].length > 0) {
-                    player.teamName = row[2];
+                    player.teamName = row[2].trim();
                 }
                 if (row[3] && row[3].length > 0) {
-                    player.timeZone = row[3];
+                    player.timeZone = row[3].trim();
                 }
                 if (loadTeams) {
                     player.team = await this.load_team(player.number, player.name);
@@ -1049,10 +1045,10 @@ class DraftSheet {
         for (let i = 0; i < 8; i++) {
             if (rows.length > i && rows[i]) {
                 const row = rows[i];
-                if (row[0] && row[8] && row[0].length > 0 && row[8].length > 0) {
+                if (row[0] && row[8] && row[0].trim().length > 0 && row[8].trim().length > 0) {
                     schedule.push({
-                        p1: row[0],
-                        p2: row[8],
+                        p1: row[0].trim(),
+                        p2: row[8].trim(),
                         week: week,
                         match: i,
                         played: row[3] !== "?" && row[7] !== "?"
@@ -1343,7 +1339,7 @@ class DraftSheet {
                                 let minRemaining = await sheet.get_player_draft_timer(nextPlayer.number);
                                 let hours = 0;
 
-                                while (minRemaining > 60) {
+                                while (minRemaining >= 60) {
                                     minRemaining -= 60;
                                     hours += 1;
                                 }
@@ -1363,7 +1359,7 @@ class DraftSheet {
                         let minRemaining = realTimeRemaining;
                         let hours = 0;
 
-                        while (minRemaining > 60) {
+                        while (minRemaining >= 60) {
                             minRemaining -= 60;
                             hours += 1;
                         }

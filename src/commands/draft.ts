@@ -263,14 +263,14 @@ export default {
 
             await sheet.set_player_draft_timer(player.number, minRemaining);
 
-            while (minRemaining > 60) {
+            while (minRemaining >= 60) {
                 minRemaining -= 60;
                 hours += 1;
             }
             if (hours > 0) {
-                msg += `\nThey have ${hours} ${hours === 1 ? "hour" : "hours"} and ${minRemaining} ${minRemaining === 1 ? "minute" : "minutes"} for your next pick.`;
+                msg += `\nThey have ${hours} ${hours === 1 ? "hour" : "hours"} and ${minRemaining} ${minRemaining === 1 ? "minute" : "minutes"} for their next pick.`;
             } else {
-                msg += `\nThey have ${minRemaining} ${minRemaining === 1 ? "minute" : "minutes"} for your next pick.`;
+                msg += `\nThey have ${minRemaining} ${minRemaining === 1 ? "minute" : "minutes"} for their next pick.`;
             }
 
             await interaction.editReply({
@@ -329,7 +329,7 @@ export default {
             let minRemaining = await sheet.get_player_draft_timer(nextPlayer.number);
             let hours = 0;
 
-            while (minRemaining > 60) {
+            while (minRemaining >= 60) {
                 minRemaining -= 60;
                 hours += 1;
             }

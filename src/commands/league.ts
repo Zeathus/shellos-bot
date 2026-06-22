@@ -557,7 +557,7 @@ export default {
 
                 let timeRemaining = await sheet.get_player_draft_timer(sheet.players[0].number);
                 let hours = 0;
-                while (timeRemaining > 60) {
+                while (timeRemaining >= 60) {
                     timeRemaining -= 60;
                     hours += 1;
                 }

@@ -1,3 +1,5 @@
+#!/bin/bash
+
 trap ctrl_c INT
 
 loop=1

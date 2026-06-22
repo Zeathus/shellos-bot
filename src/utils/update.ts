@@ -38,7 +38,7 @@ const genMessage = (matchJson: { [key: string]: any }) => {
                 message1 += `${pokemon} survived. \n`;
                 killedBy1 += " \n"
             } else {
-                if (deathJson1[pokemon].killer === "") {
+                if (deathJson1[pokemon].killer === "" || pokemon === deathJson1[pokemon].killer) {
                     message1 += `${pokemon} defeated itself. \n`;
                     deathJson1[pokemon].killer = "Self KO";
                 } else {
@@ -56,7 +56,7 @@ const genMessage = (matchJson: { [key: string]: any }) => {
                 message2 += `${pokemon} survived. \n`;
                 killedBy2 += " \n"
             } else {
-                if (deathJson2[pokemon].killer === "") {
+                if (deathJson2[pokemon].killer === "" || pokemon === deathJson2[pokemon].killer) {
                     message2 += `${pokemon} defeated itself. \n`;
                     deathJson2[pokemon].killer = "Self KO";
                 } else {

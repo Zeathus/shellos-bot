@@ -17,6 +17,7 @@ import DraftSheet, { createTierPayload, DraftPlayer, registerElo } from "./types
 import { draftablePokemon } from "./utils/pokemon.js";
 import { ChildProcess } from "child_process";
 import { CronJob } from "cron";
+import { setServers } from "dns";
 
 // Setting things up
 dotenv.config();
@@ -314,9 +315,22 @@ const messageFunction = async (message: Message) => {
                 let currentPlayer = -1;
 
                 for (let i = 1; i < lines.length; i++) {
-                    const line = lines[i].toLowerCase().replace("|", "").replace("*", "").trim();
+                    let line = lines[i].toLowerCase();
+                    while (line.includes("|")) {
+                        line = line.replace("|", "");
+                    }
+                    while (line.includes("*")) {
+                        line = line.replace("*", "");
+                    }
+                    ["’", "´", "`"].forEach((i) => {
+                        while (line.includes(i)) {
+                            line = line.replace(i, "'");
+                        }
+                    })
+                    line = line.trim();
+                    console.log(line);
 
-                    const headerRegex = new RegExp(`(${playerNames[0]}|${playerNames[1]})'?s? *(team)?:?`);
+                    const headerRegex = new RegExp(`^(${playerNames[0]}|${playerNames[1]})'?s? *(team)?:?`);
                     const header = line.match(headerRegex);
                     if (header) {
                         if (header[1] === playerNames[0]) {
@@ -394,6 +408,11 @@ const messageFunction = async (message: Message) => {
                     if (team1[i].killer) {
                         const killerName = team1[i].killer || "nomatch";
                         team1[i].error = `There is no Pokémon matching '${team1[i].killer}' on ${playerNames[1]}'s roster`;
+                        // Check for special cases
+                        if (killerName === "itself") {
+                            team1[i].killer = "Self KO";
+                            team1[i].error = undefined;
+                        }
                         // Check for exact matches
                         for (const member of players[1].team) {
                             if (member.name.toLowerCase() === killerName) {
@@ -449,6 +468,11 @@ const messageFunction = async (message: Message) => {
                     if (team2[i].killer) {
                         const killerName = team2[i].killer || "nomatch";
                         team2[i].error = `There is no Pokémon matching '${team2[i].killer}' on ${playerNames[0]}'s roster`;
+                        // Check for special cases
+                        if (killerName === "itself") {
+                            team2[i].killer = "Self KO";
+                            team2[i].error = undefined;
+                        }
                         // Check for exact matches
                         for (const member of players[0].team) {
                             if (member.name.toLowerCase() === killerName) {
@@ -489,11 +513,13 @@ const messageFunction = async (message: Message) => {
                     return;
                 }
                 if (team1.length < 6) {
-                    await botMsg.edit(`**Failed to process match:**\n${playerNames[0]}'s team does not have 6 Pokémon`);
+                    const teamStr = team1.length == 0 ? "empty" : team1.map((x) => x.name).join(", ");
+                    await botMsg.edit(`**Failed to process match:**\n${playerNames[0]}'s team does not have 6 Pokémon.\nThe team was ${teamStr}`);
                     return;
                 }
                 if (team2.length < 6) {
-                    await botMsg.edit(`**Failed to process match:**\n${playerNames[1]}'s team does not have 6 Pokémon`);
+                    const teamStr = team2.length == 0 ? "empty" : team2.map((x) => x.name).join(", ");
+                    await botMsg.edit(`**Failed to process match:**\n${playerNames[1]}'s team does not have 6 Pokémon.\nThe team was ${teamStr}`);
                     return;
                 }
 
